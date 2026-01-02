@@ -3,7 +3,7 @@
 This Model is a compact Transformer decoder implementing a Sparse Mixture of Experts (MoE) architecture. It is trained on 30% of Wikitext-103 dataset, a text corpus of Wikipedia articles. It is able to achieve reletively good results while maintaining a low parameter count.
 
 The model was trained on a 30% subset of the WikiText-103 dataset. Evaluation was performed on the WikiText-2 dataset (2 million tokens), yielding 38 ppl and 3.6 cross Entropy
----
+
 ## Key Features
 
 1. Sparse Mixture of Experts (MoE): Implements a routing mechanism with 6 experts and top-k (k=2) selection to optimize compute efficiency.
