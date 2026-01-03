@@ -25,7 +25,7 @@ class Config:
     LEARNING_RATE = 5e-4
     WEIGHT_DECAY = 0.1
     LB_LOSS_WEIGHT = 0.1
-    WARMUP_EPOCHS = 0       # Set to 1 if you want to delay MoE penalty
+    WARMUP_EPOCHS = 1       # Set to 1 if you want to delay MoE penalty
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def main():
