@@ -79,15 +79,16 @@ def main():
 
         for i, batch in progress_bar:
             # training_step_wikitext performs the forward/backward and returns loss
-            loss = training_step_wikitext(
+            loss_tuple = training_step_wikitext(
                 model, batch, optimizer, scaler, 
                 cfg.LB_LOSS_WEIGHT, use_moe, None, cfg.DEVICE
             )
             scheduler.step()
+            # Extract the main loss from the tuple for the display
+            actual_loss = loss_tuple[0] if isinstance(loss_tuple, tuple) else loss_tuple
 
-            # Update progress bar every 10 steps
             if i % 10 == 0:
-                progress_bar.set_postfix({"loss": f"{loss:.4f}"})
+                progress_bar.set_postfix({"loss": f"{actual_loss:.4f}"})
             
             # HARD PRINT every 500 steps (Reliability fix for background commits)
             if i % 500 == 0:
