@@ -1,10 +1,12 @@
 import argparse
 import os
+import sys
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.cuda.amp import GradScaler
+from tqdm import tqdm
 
 # Modular Imports
 from models.transformer import Decoder_LLM
@@ -18,7 +20,7 @@ def parse_ablation_args():
     parser.add_argument("--lb_weight", type=float, default=0.0)
     parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--save_path", type=str, required=True)
-    # .parse_known_args() ignores extra Modal flags that cause Status 2
+    # .parse_known_args() ignores extra Kaggle/Modal flags
     args, _ = parser.parse_known_args()
     return args
 
@@ -38,8 +40,14 @@ class Config:
 
 def main():
     cfg = Config()
+    
+    print(f"--- Starting Ablation Run: {cfg.SAVE_PATH} ---", flush=True)
+    
+    # Load Data
     train_loader, test_loader = get_wikitext_loaders(cfg.MAX_SEQ_LEN, cfg.MICRO_BATCH)
+    print(f"Data Loaders Ready! Train: {len(train_loader)} batches", flush=True)
 
+    # Initialize Model
     model = Decoder_LLM(
         vocab_size=50257, d_model=cfg.D_MODEL, max_seq_len=cfg.MAX_SEQ_LEN,
         n_layers=cfg.N_LAYERS, d_ff=cfg.D_FF, n_heads=cfg.N_HEADS,
@@ -48,23 +56,51 @@ def main():
 
     optimizer = AdamW(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=cfg.WEIGHT_DECAY)
     scaler = GradScaler()
-    scheduler = OneCycleLR(optimizer, max_lr=cfg.LEARNING_RATE, 
-                           total_steps=len(train_loader) * cfg.NUM_EPOCHS, pct_start=0.1)
+    scheduler = OneCycleLR(
+        optimizer, 
+        max_lr=cfg.LEARNING_RATE, 
+        total_steps=len(train_loader) * cfg.NUM_EPOCHS, 
+        pct_start=0.1
+    )
 
     for epoch in range(cfg.NUM_EPOCHS):
         model.train()
         use_moe = epoch >= cfg.WARMUP_EPOCHS
-        for batch in train_loader:
-            training_step_wikitext(model, batch, optimizer, scaler, 
-                                   cfg.LB_LOSS_WEIGHT, use_moe, None, cfg.DEVICE)
+        
+        # tqdm setup: file=sys.stdout ensures logs appear in Kaggle Live Logs
+        # mininterval=5 prevents the console from being flooded
+        progress_bar = tqdm(
+            enumerate(train_loader), 
+            total=len(train_loader), 
+            desc=f"Epoch {epoch+1}/{cfg.NUM_EPOCHS}",
+            file=sys.stdout,
+            mininterval=5 
+        )
+
+        for i, batch in progress_bar:
+            # training_step_wikitext performs the forward/backward and returns loss
+            loss = training_step_wikitext(
+                model, batch, optimizer, scaler, 
+                cfg.LB_LOSS_WEIGHT, use_moe, None, cfg.DEVICE
+            )
             scheduler.step()
 
-        # Validation (This print is captured by final_work.py)
-        _, avg_ppl = evaluate_wikitext(model, test_loader, cfg.DEVICE)
-        print(f"Epoch {epoch+1} | Test PPL: {avg_ppl:.2f}")
+            # Update progress bar every 10 steps
+            if i % 10 == 0:
+                progress_bar.set_postfix({"loss": f"{loss:.4f}"})
+            
+            # HARD PRINT every 500 steps (Reliability fix for background commits)
+            if i % 500 == 0:
+                print(f" [Epoch {epoch+1}] Batch {i}/{len(train_loader)} | Loss: {loss:.4f}", flush=True)
 
+        # Validation at end of epoch
+        print(f"\nEvaluating Epoch {epoch+1}...", flush=True)
+        _, avg_ppl = evaluate_wikitext(model, test_loader, cfg.DEVICE)
+        print(f"Perplexity: {avg_ppl:.2f}\n", flush=True)
+
+    # Final Save
     torch.save(model.state_dict(), cfg.SAVE_PATH)
-    print(f"Ablation Complete. Saved to {cfg.SAVE_PATH}")
+    print(f"Ablation Complete. Saved to {cfg.SAVE_PATH}", flush=True)
 
 if __name__ == "__main__":
     main()
