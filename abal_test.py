@@ -8,16 +8,17 @@ from datasets import load_dataset
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
-# --- Modular Imports ---
-# Ensure these match your project structure
+# 1. Modular Imports 
 from models.transformer import Decoder_LLM
 
 def parse_test_args():
     parser = argparse.ArgumentParser(description="MoE Ablation Benchmarking")
-    parser.add_argument("--model_path", type=str, required=True, help="Path to .pth or .pt file")
+    parser.add_argument("--model_path", type=str, required=True)
     parser.add_argument("--num_experts", type=int, required=True)
     parser.add_argument("--top_k", type=int, required=True)
-    return parser.parse_args()
+    # Using parse_known_args to stay consistent with the train script
+    args, _ = parser.parse_known_args()
+    return args
 
 def get_test_only_loader(tokenizer, max_seq_len=512, batch_size=32):
     """Standardizes the WikiText-2 Test set for benchmarking."""
@@ -57,24 +58,22 @@ def get_test_only_loader(tokenizer, max_seq_len=512, batch_size=32):
     )
 
 def run_final_performance_test(model, test_loader, device):
-    """The Benchmark Engine. Calculates Perplexity based on total token cross-entropy."""
+    """Benchmark Engine: Calculates Perplexity."""
     model.eval()
     total_loss = 0
     total_tokens = 0
-    
-    print(f" Benchmarking initiated on {device}...")
     
     with torch.inference_mode():
         for batch in tqdm(test_loader, desc="Testing"):
             ids = batch["input_ids"].to(device)
             targets = batch["labels"].to(device)
 
-            # Note: Using float16 for L4 GPU efficiency
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                 out = model(ids)
-                # Handle both dict and tensor outputs
+                # Handle cases where model returns a dict or a raw tensor
                 logits = out["logits"] if isinstance(out, dict) else out
 
+                # Causal Shift
                 shift_logits = logits[:, :-1, :].contiguous()
                 shift_labels = targets[:, 1:].contiguous()
 
@@ -89,12 +88,9 @@ def run_final_performance_test(model, test_loader, device):
 
     avg_loss = total_loss / total_tokens
     perplexity = math.exp(avg_loss)
-
-    print(f"\n   WIKITEXT-2 TEST BENCHMARK")
-    print("   " + "-" * 37)
-    print(f"   Avg Loss:   {avg_loss:.4f}")
-    print(f"   Perplexity: {perplexity:.2f}")
-    print("   " + "="*37)
+    
+    print(f"Avg Loss: {avg_loss:.4f}")
+    print(f"Perplexity: {perplexity:.4f}")
     
     return avg_loss, perplexity
 
@@ -102,11 +98,10 @@ def main():
     args = parse_test_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 1. Load Tokenizer
+    # 1. Initialize Tokenizer
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
-    # 2. Re-initialize the Model with Ablation Parameters
-    # Ensure these hyperparams (d_model, n_layers, etc.) match your abal_train.py Config
+    # 2. Build Model matching the ablation architecture
     model = Decoder_LLM(
         vocab_size=50257,
         d_model=512,
@@ -115,16 +110,18 @@ def main():
         d_ff=1536,
         n_heads=8,
         n_experts=args.num_experts,
-        k_moe=args.top_k,
-        temp=0.7
+        k_moe=args.top_k
     ).to(device)
 
-    # 3. Load the Weights
-    print(f"Loading weights from {args.model_path}...")
-    state_dict = torch.load(args.model_path, map_location=device)
-    model.load_state_dict(state_dict)
+    # 3. Load weights from the volume path
+    if os.path.exists(args.model_path):
+        model.load_state_dict(torch.load(args.model_path, map_location=device))
+        print(f"✅ Successfully loaded {args.model_path}")
+    else:
+        print(f"❌ Model path not found: {args.model_path}")
+        return
 
-    # 4. Prepare Data & Run Test
+    # 4. Benchmark
     test_loader = get_test_only_loader(tokenizer)
     run_final_performance_test(model, test_loader, device)
 
