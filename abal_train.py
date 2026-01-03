@@ -20,7 +20,6 @@ def parse_ablation_args():
     parser.add_argument("--lb_weight", type=float, default=0.0)
     parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--save_path", type=str, required=True)
-    # .parse_known_args() ignores extra Kaggle/Modal flags
     args, _ = parser.parse_known_args()
     return args
 
@@ -67,8 +66,6 @@ def main():
         model.train()
         use_moe = epoch >= cfg.WARMUP_EPOCHS
         
-        # tqdm setup: file=sys.stdout ensures logs appear in Kaggle Live Logs
-        # mininterval=5 prevents the console from being flooded
         progress_bar = tqdm(
             enumerate(train_loader), 
             total=len(train_loader), 
@@ -78,21 +75,25 @@ def main():
         )
 
         for i, batch in progress_bar:
-            # training_step_wikitext performs the forward/backward and returns loss
-            loss_tuple = training_step_wikitext(
+            # Returns (total_loss, lb_loss) or a single loss tensor
+            out = training_step_wikitext(
                 model, batch, optimizer, scaler, 
                 cfg.LB_LOSS_WEIGHT, use_moe, None, cfg.DEVICE
             )
             scheduler.step()
-            # Extract the main loss from the tuple for the display
-            actual_loss = loss_tuple[0] if isinstance(loss_tuple, tuple) else loss_tuple
+
+            # Robust loss extraction
+            if isinstance(out, (tuple, list)):
+                actual_loss = out[0].item() if torch.is_tensor(out[0]) else out[0]
+            else:
+                actual_loss = out.item() if torch.is_tensor(out) else out
 
             if i % 10 == 0:
                 progress_bar.set_postfix({"loss": f"{actual_loss:.4f}"})
             
-            # HARD PRINT every 500 steps (Reliability fix for background commits)
+            # FIXED: Using actual_loss instead of loss_tuple
             if i % 500 == 0:
-                print(f" [Epoch {epoch+1}] Batch {i}/{len(train_loader)} | Loss: {loss:.4f}", flush=True)
+                print(f" [Epoch {epoch+1}] Batch {i}/{len(train_loader)} | Loss: {actual_loss:.4f}", flush=True)
 
         # Validation at end of epoch
         print(f"\nEvaluating Epoch {epoch+1}...", flush=True)
