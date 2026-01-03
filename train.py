@@ -20,7 +20,7 @@ class Config:
     K_MOE = 2
     MAX_SEQ_LEN = 512
     MICRO_BATCH = 32
-    ACCUMULATION_STEPS = 4  # Global Batch Size = 32 * 4 = 128
+    ACCUMULATION_STEPS = 1  # Global Batch Size = 32 * 4 = 128
     NUM_EPOCHS = 4
     LEARNING_RATE = 5e-4
     WEIGHT_DECAY = 0.1
