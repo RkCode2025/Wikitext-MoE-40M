@@ -55,7 +55,13 @@ def get_wikitext_loaders(tokenizer_name="gpt2", max_seq_len=512, micro_batch=32,
 
     # Process Testing Data
     tokenized_test = test_ds.map(tokenize_function, batched=True, num_proc=num_cpus, remove_columns=["text"])
-    lm_test = tokenized_test.map(group_texts, batched=True, batch_size=1000, num_proc=num_cpus, remove_columns=["input_ids"])
+    lm_test = tokenized_test.map(
+        group_texts, 
+        batched=True, 
+       batch_size=1000, 
+       num_proc=num_cpus, 
+       remove_columns=tokenized_test.column_names # <--- Change this
+    )
 
     # 3. Create DataLoaders
     train_loader = DataLoader(
